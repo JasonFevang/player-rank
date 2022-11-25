@@ -1,29 +1,45 @@
 use ndarray::*;
 use ndarray_linalg::*;
 
+use rand::Rng;
+
+const NUM_PLAYERS: usize = 4;
+const NOISE_RANGE: f64 = 0.1;
+
 fn main() {
-    // A = 5.9D
-    // A = 3.1C
-    // A = 1.55B
-    // B = 2.1C
-    // B = 3.9D
-    // C = 1.9D
-    // D = 1
+    // Generate a series of players with random rating in range [0,1)
+    let mut seed_rankings: Vec<f64> = Vec::new();
+    for _ in 0..NUM_PLAYERS{
+        seed_rankings.push(rand::random::<f64>());
+    }
+    println!("{:?}", seed_rankings);
 
-    let a: Array2<f64> = arr2(&[
-                   [1., 0., 0., -5.9],
-                   [1., 0., -3.1, 0.],
-                   [1., -1.55, 0., 0.],
-                   [0., 1., -2.1, 0.],
-                   [0., 1., 0., -3.9],
-                   [0., 0., 1., -1.9],
-                   [0., 0., 0., 1.],
-    ]);
-    let b: Array1<f64> = arr1(&[0., 0., 0., 0., 0., 0., 1.]);
+    // Generate A matrix
+    let mut first_row: [f64; NUM_PLAYERS] = [0.; NUM_PLAYERS];
+    first_row[NUM_PLAYERS - 1] = 1.;
+    let mut a: Array2<f64> = arr2(&[first_row]);
+    for p1 in 0..NUM_PLAYERS{
+        for p2 in (p1 + 1)..NUM_PLAYERS{
+            let mut next_row: [f64; NUM_PLAYERS] = [0.; NUM_PLAYERS];
+            // Generate random noise on the accuracy of the rankings
+            let noise: f64 = rand::thread_rng().gen_range((1. - NOISE_RANGE/2.)..(1. + NOISE_RANGE/2.));
+            next_row[p1] = 1.;
+            next_row[p2] = -seed_rankings[p1]/seed_rankings[p2] * noise; // noisy seed ranking
+            a.push_row(ArrayView::from(&next_row)).unwrap();
+        }
+    }
+    println!("seed_mat: {}", a);
 
+    // Generate b vector
+    let mut b: Vec<f64> = vec![0.; a.dim().0];
+    b[0] = seed_rankings[NUM_PLAYERS - 1];
+    let b: Array1<f64> = arr1(&b);
+    println!("b_vec: {}", b);
+
+    // Perform linear algebra to do least squares regression
     let ata = a.t().dot(&a);
     let atb = a.t().dot(&b);
-
     let _x = ata.solve(&atb).unwrap();
+
     println!("Solution: {}", _x);
 }
