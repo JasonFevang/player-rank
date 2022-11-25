@@ -208,11 +208,41 @@ fn main() {
         log_err_stats(&err);
     }
     else{
-        let names: Vec<String> = vec![String::from("Jason"), String::from("Max"), String::from("Younis"), String::from("Jake")];
+        let names: Vec<String> = vec![
+            String::from("P1"),
+            String::from("P2"),
+            String::from("P3"),
+            String::from("P4"),
+            String::from("P5"),
+            String::from("P6"),
+            String::from("P7"),
+            String::from("P8"),
+            String::from("P9"),
+            String::from("P10"),
+            String::from("P11"),
+            String::from("P12"),
+            String::from("P13"),
+            String::from("P14"),
+            String::from("P15"),
+            String::from("P16"),
+            String::from("P17"),
+            String::from("P18"),
+            String::from("P19"),
+            String::from("P20"),
+            String::from("P21"),
+            String::from("P22"),
+            String::from("P23"),
+            String::from("P24"),
+            String::from("P25"),
+            String::from("P26"),
+        ];
         let (a, b) = gen_lin_sys_from_questions(&names);
         let sol = least_squares_regression(a, b);
+        let mut results: Vec<(&str, f64)> = Vec::new();
         for i in 0..sol.len(){
-            println!("{}: {}", names[i], sol[i]);
+            results.push((&names[i], sol[i]));
         }
+        results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        println!("{:.3?}", results);
     }
 }
