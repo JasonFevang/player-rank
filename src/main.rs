@@ -1,6 +1,8 @@
 use ndarray::*;
 use ndarray_linalg::*;
 use rand::Rng;
+use rand::seq::SliceRandom;
+use rand::thread_rng;
 use std::io;
 
 const NUM_PLAYERS: usize = 4;
@@ -55,8 +57,13 @@ fn gen_lin_sys_from_seed_rankings(seed_rankings: &Vec<f64>, noise_range: f64, ch
     (a, b)
 }
 
+enum UserResponse{
+    Value(f64),
+    Quit
+}
+
 // Ask user for an input on how much better name1 is than name2
-fn ask_question(name1: &str, name2: &str) -> f64{
+fn ask_question(name1: &str, name2: &str) -> UserResponse{
     println!("{} v {}", name1, name2);
     let mut input = String::new();
 
@@ -64,8 +71,28 @@ fn ask_question(name1: &str, name2: &str) -> f64{
         .read_line(&mut input)
         .expect("Failed to read line");
 
-    let input: f64 = input.trim().parse().expect("Please type a number!");
-    input
+    match input.trim().parse::<f64>(){
+        Ok(val) => UserResponse::Value(val),
+        Err(_) => UserResponse::Quit,
+    }
+}
+
+// Generate a randomized, minimum set of questions to fully define the vector space(idk if that means anything but it sounds sick lmao)
+fn gen_min_questions(names: &Vec<String>) -> Vec<(usize, usize)>{
+    // Create shuffled list of all players
+    let mut player_list: Vec<usize> = (0..names.len()).collect();
+    let mut rng = thread_rng();
+    player_list.shuffle(&mut rng);
+
+    // Create pairs from this shuffled list
+    let mut pairs: Vec<(usize, usize)> = Vec::new();
+    for i in 0..(names.len() - 1){
+        pairs.push((player_list[i], player_list[i + 1]));
+    }
+
+    // Shuffle those pairs
+    pairs.shuffle(&mut rng);
+    pairs
 }
 
 fn gen_lin_sys_from_questions(names: &Vec<String>) -> (Array2<f64>, Array1<f64>){
@@ -77,17 +104,50 @@ fn gen_lin_sys_from_questions(names: &Vec<String>) -> (Array2<f64>, Array1<f64>)
     }
     a[[0, names.len() - 1]] = 1.;
 
-    // Remaining rows
-    for p1 in 0..names.len(){
-        for p2 in (p1 + 1)..names.len(){
+    let min_question_set = gen_min_questions(names);
+
+    // Ask necessary questions
+    let mut left_early = false;
+    for (p1, p2) in &min_question_set{
+        // Ask a question, get a response or break
+        if let UserResponse::Value(val) = ask_question(&names[*p1], &names[*p2]){
             let mut next_row: Vec<f64> = vec![0.; names.len()];
-            next_row[p1] = 1.;
-            next_row[p2] = -ask_question(&names[p1], &names[p2]);
+            next_row[*p1] = 1.;
+            next_row[*p2] = -val;
             a.push_row(ArrayView::from(&next_row)).unwrap();
-            match a.det() {
-                Ok(_) => println!("det exists"),
-                Err(_) => println!("no det")
-            };
+        }
+        else{
+            println!("Breaking early, this isn't going to work");
+            left_early = true;
+            break;
+        }
+    }
+
+    if !left_early{
+        println!("Done necessary questions");
+
+        // List and shuffle all remaining questions
+        let mut remaining_questions: Vec<(usize, usize)> = Vec::new();
+        for p1 in 0..names.len(){
+            for p2 in (p1 + 1)..names.len(){
+                if !min_question_set.contains(&(p1, p2)){
+                    remaining_questions.push((p1, p2));
+                }
+            }
+        }
+        remaining_questions.shuffle(&mut thread_rng());
+
+        // Ask remaining questions until the user gets bored
+        for (p1, p2) in &remaining_questions{
+            if let UserResponse::Value(val) = ask_question(&names[*p1], &names[*p2]){
+                let mut next_row: Vec<f64> = vec![0.; names.len()];
+                next_row[*p1] = 1.;
+                next_row[*p2] = -val;
+                a.push_row(ArrayView::from(&next_row)).unwrap();
+            }
+            else{
+                break;
+            }
         }
     }
 
@@ -151,7 +211,6 @@ fn main() {
         let names: Vec<String> = vec![String::from("Jason"), String::from("Max"), String::from("Younis"), String::from("Jake")];
         let (a, b) = gen_lin_sys_from_questions(&names);
         let sol = least_squares_regression(a, b);
-
         for i in 0..sol.len(){
             println!("{}: {}", names[i], sol[i]);
         }
