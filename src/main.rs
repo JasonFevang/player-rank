@@ -1,11 +1,9 @@
 use ndarray::*;
 use ndarray_linalg::*;
-
 use rand::Rng;
+use std::io;
 
-const NUM_PLAYERS: usize = 35;
-const NOISE_RANGE: f64 = 0.2;
-const CHANCE_SKIP_ROW: f64 = 0.;
+const NUM_PLAYERS: usize = 4;
 
 // Generate a vector of randomized rankings to seed the matrix with instead of asking questions
 // Results are normalized to the last entry, so the last entry will always be 1
@@ -23,7 +21,7 @@ fn gen_seed_rankings() -> Vec<f64>{
 }
 
 // Given a seed vector of rankings of players, generate a test linear system
-fn gen_lin_sys_from_seed_rankings(seed_rankings: &Vec<f64>) -> (Array2<f64>, Array1<f64>){
+fn gen_lin_sys_from_seed_rankings(seed_rankings: &Vec<f64>, noise_range: f64, chance_skip_row: f64) -> (Array2<f64>, Array1<f64>){
     // Generate A matrix
     let mut a: Array2<f64> = arr2(&[[]]);
     // First row
@@ -36,13 +34,13 @@ fn gen_lin_sys_from_seed_rankings(seed_rankings: &Vec<f64>) -> (Array2<f64>, Arr
     for p1 in 0..NUM_PLAYERS{
         for p2 in (p1 + 1)..NUM_PLAYERS{
             // Skip rows occasionally
-            if rand::random::<f64>() < CHANCE_SKIP_ROW{
+            if rand::random::<f64>() < chance_skip_row{
                 continue;
             }
 
             let mut next_row: [f64; NUM_PLAYERS] = [0.; NUM_PLAYERS];
             // Generate random noise on the accuracy of the rankings
-            let noise: f64 = rand::thread_rng().gen_range((1. - NOISE_RANGE/2.)..(1. + NOISE_RANGE/2.));
+            let noise: f64 = rand::thread_rng().gen_range((1. - noise_range/2.)..(1. + noise_range/2.));
             next_row[p1] = 1.;
             next_row[p2] = -seed_rankings[p1]/seed_rankings[p2] * noise; // noisy seed ranking
             a.push_row(ArrayView::from(&next_row)).unwrap();
@@ -51,7 +49,45 @@ fn gen_lin_sys_from_seed_rankings(seed_rankings: &Vec<f64>) -> (Array2<f64>, Arr
 
     // Generate b vector
     let mut b: Vec<f64> = vec![0.; a.dim().0];
-    b[0] = seed_rankings[NUM_PLAYERS - 1];
+    b[0] = 1.;
+    let b: Array1<f64> = arr1(&b);
+
+    (a, b)
+}
+
+fn gen_lin_sys_from_quesions(names: &Vec<String>) -> (Array2<f64>, Array1<f64>){
+    // Generate A matrix
+    let mut a: Array2<f64> = arr2(&[[]]);
+    // First row
+    for _ in 0..names.len(){
+        a.push_column(ArrayView::from(&[0.])).unwrap();
+    }
+    a[[0, names.len() - 1]] = 1.;
+
+    // Remaining rows
+    for p1 in 0..names.len(){
+        for p2 in (p1 + 1)..names.len(){
+            let mut next_row: Vec<f64> = vec![0.; names.len()];
+            // Generate random noise on the accuracy of the rankings
+            next_row[p1] = 1.;
+            
+            println!("{} v {}", names[p1], names[p2]);
+            let mut input = String::new();
+
+            io::stdin()
+                .read_line(&mut input)
+                .expect("Failed to read line");
+
+            let input: f64 = input.trim().parse().expect("Please type a number!");
+            // Ask user for an input on how much better the two players are
+            next_row[p2] = -input;
+            a.push_row(ArrayView::from(&next_row)).unwrap();
+        }
+    }
+
+    // Generate b vector
+    let mut b: Vec<f64> = vec![0.; a.dim().0];
+    b[0] = 1.;
     let b: Array1<f64> = arr1(&b);
 
     (a, b)
@@ -95,9 +131,16 @@ fn log_err_stats(err: &Vec<f64>){
 }
 
 fn main() {
-    let seed_rankings = gen_seed_rankings();
-    let (a, b) = gen_lin_sys_from_seed_rankings(&seed_rankings);
+    // let seed_rankings = gen_seed_rankings();
+    // let noise_range = 0.2;
+    // let chance_skip_row = 0.05;
+    // let (a, b) = gen_lin_sys_from_seed_rankings(&seed_rankings, noise_range, chance_skip_row);
+    let names: Vec<String> = vec![String::from("Jason"), String::from("Max"), String::from("Younis"), String::from("Jake")];
+    let (a, b) = gen_lin_sys_from_quesions(&names);
     let sol = least_squares_regression(a, b);
-    let err = compute_err_from_seed(&seed_rankings, &sol);
-    log_err_stats(&err);
+    for i in 0..sol.len(){
+        println!("{}: {}", names[i], sol[i]);
+    }
+    // let err = compute_err_from_seed(&seed_rankings, &sol);
+    // log_err_stats(&err);
 }
