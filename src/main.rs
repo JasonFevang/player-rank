@@ -55,7 +55,20 @@ fn gen_lin_sys_from_seed_rankings(seed_rankings: &Vec<f64>, noise_range: f64, ch
     (a, b)
 }
 
-fn gen_lin_sys_from_quesions(names: &Vec<String>) -> (Array2<f64>, Array1<f64>){
+// Ask user for an input on how much better name1 is than name2
+fn ask_question(name1: &str, name2: &str) -> f64{
+    println!("{} v {}", name1, name2);
+    let mut input = String::new();
+
+    io::stdin()
+        .read_line(&mut input)
+        .expect("Failed to read line");
+
+    let input: f64 = input.trim().parse().expect("Please type a number!");
+    input
+}
+
+fn gen_lin_sys_from_questions(names: &Vec<String>) -> (Array2<f64>, Array1<f64>){
     // Generate A matrix
     let mut a: Array2<f64> = arr2(&[[]]);
     // First row
@@ -68,20 +81,13 @@ fn gen_lin_sys_from_quesions(names: &Vec<String>) -> (Array2<f64>, Array1<f64>){
     for p1 in 0..names.len(){
         for p2 in (p1 + 1)..names.len(){
             let mut next_row: Vec<f64> = vec![0.; names.len()];
-            // Generate random noise on the accuracy of the rankings
             next_row[p1] = 1.;
-            
-            println!("{} v {}", names[p1], names[p2]);
-            let mut input = String::new();
-
-            io::stdin()
-                .read_line(&mut input)
-                .expect("Failed to read line");
-
-            let input: f64 = input.trim().parse().expect("Please type a number!");
-            // Ask user for an input on how much better the two players are
-            next_row[p2] = -input;
+            next_row[p2] = -ask_question(&names[p1], &names[p2]);
             a.push_row(ArrayView::from(&next_row)).unwrap();
+            match a.det() {
+                Ok(_) => println!("det exists"),
+                Err(_) => println!("no det")
+            };
         }
     }
 
@@ -100,7 +106,7 @@ fn least_squares_regression(a: Array2<f64>, b: Array1<f64>) -> Vec<f64>{
     let atb = a.t().dot(&b);
     let mut sol = ata.solve(&atb).unwrap().to_vec();
 
-    // Normalize solution vector
+    // Normalize solution vector to the last element
     for i in 0..NUM_PLAYERS{
         sol[i] = sol[i] / sol[NUM_PLAYERS - 1];
     }
@@ -131,16 +137,23 @@ fn log_err_stats(err: &Vec<f64>){
 }
 
 fn main() {
-    // let seed_rankings = gen_seed_rankings();
-    // let noise_range = 0.2;
-    // let chance_skip_row = 0.05;
-    // let (a, b) = gen_lin_sys_from_seed_rankings(&seed_rankings, noise_range, chance_skip_row);
-    let names: Vec<String> = vec![String::from("Jason"), String::from("Max"), String::from("Younis"), String::from("Jake")];
-    let (a, b) = gen_lin_sys_from_quesions(&names);
-    let sol = least_squares_regression(a, b);
-    for i in 0..sol.len(){
-        println!("{}: {}", names[i], sol[i]);
+    let auto_test = false;
+    if auto_test{
+        let seed_rankings = gen_seed_rankings();
+        let noise_range = 0.2;
+        let chance_skip_row = 0.5;
+        let (a, b) = gen_lin_sys_from_seed_rankings(&seed_rankings, noise_range, chance_skip_row);
+        let sol = least_squares_regression(a, b);
+        let err = compute_err_from_seed(&seed_rankings, &sol);
+        log_err_stats(&err);
     }
-    // let err = compute_err_from_seed(&seed_rankings, &sol);
-    // log_err_stats(&err);
+    else{
+        let names: Vec<String> = vec![String::from("Jason"), String::from("Max"), String::from("Younis"), String::from("Jake")];
+        let (a, b) = gen_lin_sys_from_questions(&names);
+        let sol = least_squares_regression(a, b);
+
+        for i in 0..sol.len(){
+            println!("{}: {}", names[i], sol[i]);
+        }
+    }
 }
