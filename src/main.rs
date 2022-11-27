@@ -78,15 +78,15 @@ fn ask_question(name1: &str, name2: &str) -> UserResponse{
 }
 
 // Generate a randomized, minimum set of questions to fully define the vector space(idk if that means anything but it sounds sick lmao)
-fn gen_min_questions(names: &Vec<String>) -> Vec<(usize, usize)>{
+fn gen_min_questions(num_players: usize) -> Vec<(usize, usize)>{
     // Create shuffled list of all players
-    let mut player_list: Vec<usize> = (0..names.len()).collect();
+    let mut player_list: Vec<usize> = (0..num_players).collect();
     let mut rng = thread_rng();
     player_list.shuffle(&mut rng);
 
     // Create pairs from this shuffled list
     let mut pairs: Vec<(usize, usize)> = Vec::new();
-    for i in 0..(names.len() - 1){
+    for i in 0..(num_players - 1){
         pairs.push((player_list[i], player_list[i + 1]));
     }
 
@@ -104,7 +104,7 @@ fn gen_lin_sys_from_questions(names: &Vec<String>) -> (Array2<f64>, Array1<f64>)
     }
     a[[0, names.len() - 1]] = 1.;
 
-    let min_question_set = gen_min_questions(names);
+    let min_question_set = gen_min_questions(names.len());
 
     // Ask necessary questions
     let mut left_early = false;
