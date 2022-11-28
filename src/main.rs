@@ -59,21 +59,31 @@ fn gen_lin_sys_from_seed_rankings(seed_rankings: &Vec<f64>, noise_range: f64, ch
 
 enum UserResponse{
     Value(f64),
+    Skip,
     Quit
 }
 
 // Ask user for an input on how much better name1 is than name2
 fn ask_question(name1: &str, name2: &str) -> UserResponse{
     println!("{} v {}", name1, name2);
-    let mut input = String::new();
+    loop {
+        let mut input = String::new();
 
-    io::stdin()
-        .read_line(&mut input)
-        .expect("Failed to read line");
+        io::stdin()
+            .read_line(&mut input)
+            .expect("Failed to read line");
+        let input = input.trim();
 
-    match input.trim().parse::<f64>(){
-        Ok(val) => UserResponse::Value(val),
-        Err(_) => UserResponse::Quit,
+        if input == "s" {
+            return UserResponse::Skip;
+        }
+        if input == "q" {
+            return UserResponse::Quit;
+        }
+
+        if let Ok(val) = input.parse::<f64>(){
+            return UserResponse::Value(val);
+        };
     }
 }
 
@@ -110,13 +120,18 @@ fn gen_lin_sys_from_questions(names: &Vec<String>) -> (Array2<f64>, Array1<f64>)
     let mut left_early = false;
     for (p1, p2) in &min_question_set{
         // Ask a question, get a response or break
-        if let UserResponse::Value(val) = ask_question(&names[*p1], &names[*p2]){
+        let response = ask_question(&names[*p1], &names[*p2]);
+        if let UserResponse::Value(val) = response {
             let mut next_row: Vec<f64> = vec![0.; names.len()];
             next_row[*p1] = 1.;
             next_row[*p2] = -val;
             a.push_row(ArrayView::from(&next_row)).unwrap();
         }
-        else{
+        else if let UserResponse::Skip = response {
+            println!("Skip, but actually don't cause this is broken");
+            // Perform skip logic. Append replacement questions to the min question set
+        }
+        else if let UserResponse::Quit = response {
             println!("Breaking early, this isn't going to work");
             left_early = true;
             break;
