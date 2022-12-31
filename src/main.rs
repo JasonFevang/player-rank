@@ -63,9 +63,7 @@ enum UserResponse{
     Quit
 }
 
-// Ask user for an input on how much better name1 is than name2
-fn ask_question(name1: &str, name2: &str) -> UserResponse{
-    println!("{} v {}", name1, name2);
+fn get_response() -> UserResponse{
     loop {
         let mut input = String::new();
 
@@ -85,6 +83,17 @@ fn ask_question(name1: &str, name2: &str) -> UserResponse{
             return UserResponse::Value(val);
         };
     }
+}
+
+fn ask_self_question(name: &str) -> UserResponse{
+    println!("{} Attack v {} Defense", name, name);
+    return get_response();
+}
+
+// Ask user for an input on how much better name1 is than name2
+fn ask_question(name1: &str, name2: &str) -> UserResponse{
+    println!("{} v {}", name1, name2);
+    return get_response();
 }
 
 // Generate a randomized, minimum set of questions to fully define the vector space(idk if that means anything but it sounds sick lmao)
@@ -180,6 +189,28 @@ fn count_connections(answered: &Vec<(usize, usize)>, pair: (usize, usize)) -> us
     left_cnt + right_cnt
 }
 
+fn ask_self_questions(names: &Vec<String>) -> Vec<(usize, f64)>{
+    let mut results: Vec<(usize, f64)> = Vec::new();
+
+    // Create shuffled list of all players
+    let mut player_list: Vec<usize> = (0..names.len()).collect();
+    player_list.shuffle(&mut thread_rng());
+
+    for player in player_list{
+        let response = ask_self_question(&names[player]);
+        if let UserResponse::Value(val) = response {
+            results.push((player, val));
+        }
+        else if let UserResponse::Skip = response {
+            continue;
+        }
+        else if let UserResponse::Quit = response {
+            break;
+        }
+    }
+
+    results
+}
 // Given a list of names, ask a series of questions comparing two players
 // The user can provide a value, skip a question, or quit whenever
 // Returns a list of pair of players(as indices) and the rating between them
@@ -294,19 +325,36 @@ fn ask_questions(names: &Vec<String>) -> Vec<(usize, usize, f64)>{
 
 // Convert a list of player-pairs and relative ratings, generate a system 
 // of equations and solve
-fn gen_lin_sys_from_results(results: Vec<(usize, usize, f64)>, num_players: usize) -> (Array2<f64>, Array1<f64>){
+fn gen_lin_sys_from_results(offense_results: Vec<(usize, usize, f64)>, defense_results: Vec<(usize, usize, f64)>, self_results: Vec<(usize, f64)>, num_players: usize) -> (Array2<f64>, Array1<f64>){
     // Generate A matrix
     let mut a: Array2<f64> = arr2(&[[]]);
     // First row
-    for _ in 0..num_players{
+    for _ in 0..num_players*2{
         a.push_column(ArrayView::from(&[0.])).unwrap();
     }
     a[[0, num_players - 1]] = 1.;
 
-    for entry in results{
-        let mut next_row: Vec<f64> = vec![0.; num_players];
+    // Add offense results
+    for entry in offense_results{
+        let mut next_row: Vec<f64> = vec![0.; num_players*2];
         next_row[entry.0] = 1.;
         next_row[entry.1] = -entry.2;
+        a.push_row(ArrayView::from(&next_row)).unwrap();
+    }
+
+    // Add defense results
+    for entry in defense_results{
+        let mut next_row: Vec<f64> = vec![0.; num_players*2];
+        next_row[num_players+entry.0] = 1.;
+        next_row[num_players+entry.1] = -entry.2;
+        a.push_row(ArrayView::from(&next_row)).unwrap();
+    }
+
+    // Add self results
+    for entry in self_results{
+        let mut next_row: Vec<f64> = vec![0.; num_players*2];
+        next_row[entry.0] = 1.;
+        next_row[num_players+entry.0] = -entry.1;
         a.push_row(ArrayView::from(&next_row)).unwrap();
     }
 
@@ -369,11 +417,11 @@ fn names_from_file(filename: &str) -> Vec<String>{
     names
 }
 
-fn write_results_to_file(filename: &str, results: &Vec<(&str, f64)>){
+fn write_results_to_file(filename: &str, results: &Vec<(&str, f64, f64)>){
     let mut wtr = csv::Writer::from_path(filename).unwrap();
-    wtr.write_record(&["Name", "Rating"]).unwrap();
+    wtr.write_record(&["Name", "Atk", "Def"]).unwrap();
     for row in results{
-        wtr.write_record(&[row.0, &row.1.to_string()]).unwrap();
+        wtr.write_record(&[row.0, &row.1.to_string(), &row.2.to_string()]).unwrap();
     }
     wtr.flush().unwrap();
 }
@@ -406,13 +454,19 @@ fn main() {
                 String::from("P6"),
             ]
         };
-        let results = ask_questions(&names);
-        let (a, b) = gen_lin_sys_from_results(results, names.len());
+        println!("Offensive ability questions");
+        let offense_results = ask_questions(&names);
+        println!("Defensive ability questions");
+        let defense_results = ask_questions(&names);
+        println!("Self comparision questions");
+        let player_comp_results = ask_self_questions(&names);
+
+        let (a, b) = gen_lin_sys_from_results(offense_results, defense_results, player_comp_results, names.len());
 
         let sol = least_squares_regression(a, b);
-        let mut results: Vec<(&str, f64)> = Vec::new();
-        for i in 0..sol.len(){
-            results.push((&names[i], sol[i]));
+        let mut results: Vec<(&str, f64, f64)> = Vec::new();
+        for i in 0..names.len(){
+            results.push((&names[i], sol[i], sol[names.len() + i]));
         }
         results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
         write_results_to_file(output_filename, &results);
