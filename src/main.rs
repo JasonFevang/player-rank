@@ -223,6 +223,7 @@ fn gen_lin_sys_from_questions(names: &Vec<String>) -> (Array2<f64>, Array1<f64>)
 
     println!("Done necessary questions");
 
+    let mut prev_min_links = 0;
     loop {
         // List all remaining questions
         let mut remaining_questions: Vec<(usize, usize)> = Vec::new();
@@ -236,27 +237,46 @@ fn gen_lin_sys_from_questions(names: &Vec<String>) -> (Array2<f64>, Array1<f64>)
                 }
             }
         }
-        println!("Remaining: {:?}", remaining_questions);
+        remaining_questions.shuffle(&mut thread_rng());
+
+        // println!("Remaining: {:?}", remaining_questions);
 
         // Find minimum linked question in the list
-        let mut min_links = names.len() * 2;
+        let mut min_links = names.len();
         let mut min_pair: Option<&(usize, usize)> = None;
         for pair in &remaining_questions{
-            let pair_links = count_connections(&answered, *pair);
+            let pair_links = count_connections(&answered, *pair) / 2;
             if pair_links < min_links {
                 min_links = pair_links;
                 min_pair = Some(pair);
             }
         }
 
-        if min_pair.is_some(){
-            println!("Min pair is {:?} with count {}", min_pair, min_links);
-        }
-
+        // Update user on how connected the graph is
+        // This is sorta like a confidence measure
         if min_pair.is_none(){
-            println!("Amazing, you answered or skipped every question");
+            println!("Fully linked. You answered or skipped every question");
             break;
         }
+        if prev_min_links != min_links{
+            if min_links >= 5{
+                println!("{}-linked", min_links);
+            }
+            else if min_links >= 4{
+                println!("Quadruply linked");
+            }
+            else if min_links >= 3{
+                println!("Triply linked");
+            }
+            else if min_links >= 2{
+                println!("Doubly linked");
+            }
+            prev_min_links = min_links;
+        }
+
+        // if min_pair.is_some(){
+        //     println!("Min pair is {:?} with count {}", min_pair, min_links);
+        // }
 
         let min_pair = min_pair.unwrap();
         let (p1, p2) = *min_pair;
@@ -342,26 +362,26 @@ fn main() {
             String::from("P4"),
             String::from("P5"),
             String::from("P6"),
-            // String::from("P7"),
-            // String::from("P8"),
-            // String::from("P9"),
-            // String::from("P10"),
-            // String::from("P11"),
-            // String::from("P12"),
-            // String::from("P13"),
-            // String::from("P14"),
-            // String::from("P15"),
-            // String::from("P16"),
-            // String::from("P17"),
-            // String::from("P18"),
-            // String::from("P19"),
-            // String::from("P20"),
-            // String::from("P21"),
-            // String::from("P22"),
-            // String::from("P23"),
-            // String::from("P24"),
-            // String::from("P25"),
-            // String::from("P26"),
+            String::from("P7"),
+            String::from("P8"),
+            String::from("P9"),
+            String::from("P10"),
+            String::from("P11"),
+            String::from("P12"),
+            String::from("P13"),
+            String::from("P14"),
+            String::from("P15"),
+            String::from("P16"),
+            String::from("P17"),
+            String::from("P18"),
+            String::from("P19"),
+            String::from("P20"),
+            String::from("P21"),
+            String::from("P22"),
+            String::from("P23"),
+            String::from("P24"),
+            String::from("P25"),
+            String::from("P26"),
         ];
         let (a, b) = gen_lin_sys_from_questions(&names);
         let sol = least_squares_regression(a, b);
@@ -373,3 +393,4 @@ fn main() {
         println!("{:.3?}", results);
     }
 }
+
