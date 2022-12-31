@@ -343,8 +343,34 @@ fn log_err_stats(err: &Vec<f64>){
     println!("Max: {:.3} Mean: {:.3}", max_err, mean);
 }
 
+fn names_from_file(filename: &str) -> Vec<String>{
+    let mut names: Vec<String> = Vec::new();
+    let mut rdr = csv::Reader::from_path(filename).unwrap();
+    for result in rdr.records() {
+        // The iterator yields Result<StringRecord, Error>, so we check the
+        // error here.
+        let record = result.unwrap();
+        if let Some(name) = record.get(0){
+            names.push(String::from(name));
+        }
+    }
+    names
+}
+
+fn write_results_to_file(filename: &str, results: &Vec<(&str, f64)>){
+    let mut wtr = csv::Writer::from_path(filename).unwrap();
+    wtr.write_record(&["Name", "Rating"]).unwrap();
+    for row in results{
+        wtr.write_record(&[row.0, &row.1.to_string()]).unwrap();
+    }
+    wtr.flush().unwrap();
+}
+
 fn main() {
     let auto_test = false;
+    let read_from_csv = true;
+    let names_filename = "test.csv";
+    let output_filename = "results.csv";
     if auto_test{
         let seed_rankings = gen_seed_rankings();
         let noise_range = 0.2;
@@ -355,34 +381,20 @@ fn main() {
         log_err_stats(&err);
     }
     else{
-        let names: Vec<String> = vec![
-            String::from("P1"),
-            String::from("P2"),
-            String::from("P3"),
-            String::from("P4"),
-            String::from("P5"),
-            String::from("P6"),
-            String::from("P7"),
-            String::from("P8"),
-            String::from("P9"),
-            String::from("P10"),
-            String::from("P11"),
-            String::from("P12"),
-            String::from("P13"),
-            String::from("P14"),
-            String::from("P15"),
-            String::from("P16"),
-            String::from("P17"),
-            String::from("P18"),
-            String::from("P19"),
-            String::from("P20"),
-            String::from("P21"),
-            String::from("P22"),
-            String::from("P23"),
-            String::from("P24"),
-            String::from("P25"),
-            String::from("P26"),
-        ];
+        let names = if read_from_csv{
+            names_from_file(names_filename)
+        }
+        else{
+            vec![
+                String::from("P1"),
+                String::from("P2"),
+                String::from("P3"),
+                String::from("P4"),
+                String::from("P5"),
+                String::from("P6"),
+            ]
+        };
+
         let (a, b) = gen_lin_sys_from_questions(&names);
         let sol = least_squares_regression(a, b);
         let mut results: Vec<(&str, f64)> = Vec::new();
@@ -390,7 +402,7 @@ fn main() {
             results.push((&names[i], sol[i]));
         }
         results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
-        println!("{:.3?}", results);
+        write_results_to_file(output_filename, &results);
     }
 }
 
