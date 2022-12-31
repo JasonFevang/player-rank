@@ -165,6 +165,21 @@ fn replace_skipped_pair(upcoming: &Vec<(usize, usize)>, skipped: &Vec<(usize, us
     Some(potential_replacements[rand])
 }
 
+
+fn count_connections(answered: &Vec<(usize, usize)>, pair: (usize, usize)) -> usize{
+    let mut left_cnt = 0;
+    let mut right_cnt = 0;
+    for p in answered{
+        if p.0 == pair.0 || p.1 == pair.0{
+            left_cnt += 1;
+        }
+        if p.0 == pair.1 || p.1 == pair.1{
+            right_cnt += 1;
+        }
+    }
+    left_cnt + right_cnt
+}
+
 fn gen_lin_sys_from_questions(names: &Vec<String>) -> (Array2<f64>, Array1<f64>){
     // Generate A matrix
     let mut a: Array2<f64> = arr2(&[[]]);
@@ -179,7 +194,6 @@ fn gen_lin_sys_from_questions(names: &Vec<String>) -> (Array2<f64>, Array1<f64>)
     let mut answered: Vec<(usize, usize)> = Vec::new();
 
     // Ask necessary questions
-    let mut _left_early = false;
     while !upcoming.is_empty(){
         let pair = upcoming.pop().unwrap();
         let (p1, p2) = pair;
@@ -203,38 +217,66 @@ fn gen_lin_sys_from_questions(names: &Vec<String>) -> (Array2<f64>, Array1<f64>)
         }
         else if let UserResponse::Quit = response {
             println!("Breaking early, this isn't going to work");
-            _left_early = true;
-            break;
+            assert!(false);
         }
     }
 
-    // if !left_early{
-    //     println!("Done necessary questions");
-    //
-    //     // List and shuffle all remaining questions
-    //     let mut remaining_questions: Vec<(usize, usize)> = Vec::new();
-    //     for p1 in 0..names.len(){
-    //         for p2 in (p1 + 1)..names.len(){
-    //             if !min_question_set.contains(&(p1, p2)){
-    //                 remaining_questions.push((p1, p2));
-    //             }
-    //         }
-    //     }
-    //     remaining_questions.shuffle(&mut thread_rng());
-    //
-    //     // Ask remaining questions until the user gets bored
-    //     for (p1, p2) in &remaining_questions{
-    //         if let UserResponse::Value(val) = ask_question(&names[*p1], &names[*p2]){
-    //             let mut next_row: Vec<f64> = vec![0.; names.len()];
-    //             next_row[*p1] = 1.;
-    //             next_row[*p2] = -val;
-    //             a.push_row(ArrayView::from(&next_row)).unwrap();
-    //         }
-    //         else{
-    //             break;
-    //         }
-    //     }
-    // }
+    println!("Done necessary questions");
+
+    loop {
+        // List all remaining questions
+        let mut remaining_questions: Vec<(usize, usize)> = Vec::new();
+        for p1 in 0..names.len(){
+            for p2 in (p1 + 1)..names.len(){
+                let pair = (p1, p2);
+                let pair_rev = (p2, p1);
+                if !answered.contains(&pair) && !answered.contains(&pair_rev) && 
+                    !skipped.contains(&pair) && !skipped.contains(&pair_rev){
+                    remaining_questions.push((p1, p2));
+                }
+            }
+        }
+        println!("Remaining: {:?}", remaining_questions);
+
+        // Find minimum linked question in the list
+        let mut min_links = names.len() * 2;
+        let mut min_pair: Option<&(usize, usize)> = None;
+        for pair in &remaining_questions{
+            let pair_links = count_connections(&answered, *pair);
+            if pair_links < min_links {
+                min_links = pair_links;
+                min_pair = Some(pair);
+            }
+        }
+
+        if min_pair.is_some(){
+            println!("Min pair is {:?} with count {}", min_pair, min_links);
+        }
+
+        if min_pair.is_none(){
+            println!("Amazing, you answered or skipped every question");
+            break;
+        }
+
+        let min_pair = min_pair.unwrap();
+        let (p1, p2) = *min_pair;
+
+        // Ask the question
+        let response = ask_question(&names[p1], &names[p2]);
+        if let UserResponse::Value(val) = response{
+            let mut next_row: Vec<f64> = vec![0.; names.len()];
+            next_row[p1] = 1.;
+            next_row[p2] = -val;
+            a.push_row(ArrayView::from(&next_row)).unwrap();
+            answered.push(*min_pair);
+        }
+        else if let UserResponse::Skip = response {
+            skipped.push(*min_pair);
+        }
+        else if let UserResponse::Quit = response {
+            break;
+        }
+    }
 
     // Generate b vector
     let mut b: Vec<f64> = vec![0.; a.dim().0];
