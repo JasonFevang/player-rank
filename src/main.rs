@@ -105,6 +105,66 @@ fn gen_min_questions(num_players: usize) -> Vec<(usize, usize)>{
     pairs
 }
 
+// When a pair gets skipped, find a pair to replace it while maintaining the requirements of a fully connected graph
+fn replace_skipped_pair(upcoming: &Vec<(usize, usize)>, skipped: &Vec<(usize, usize)>, answered: &Vec<(usize, usize)>, pair: &(usize, usize)) -> Option<(usize, usize)>{
+    // Find all numbers connected to each number in the skipped pair
+    let mut lhs: Vec<usize> = vec![pair.0];
+    let mut rhs: Vec<usize> = vec![pair.1];
+
+    let mut all_pairs: Vec<(usize, usize)> = upcoming.clone();
+    all_pairs.extend(answered);
+
+    // Iterate through all the pairs
+    // If one of them connects to a known number, add it to the list and start looking for another
+    while !all_pairs.is_empty(){
+        for i in (0..all_pairs.len()).rev() {
+            let pair = all_pairs[i];
+            let mut found = false;
+            if lhs.contains(&pair.0){
+                lhs.push(pair.1);
+                found = true;
+            }
+            else if lhs.contains(&pair.1){
+                lhs.push(pair.0);
+                found = true;
+            }
+            else if rhs.contains(&pair.0){
+                rhs.push(pair.1);
+                found = true;
+            }
+            else if rhs.contains(&pair.1){
+                rhs.push(pair.0);
+                found = true;
+            }
+            if found{
+                all_pairs.remove(i);
+                break;
+            }
+        }
+    }
+
+    // Generate list of all potential replacement pairs, not including the skipped ones
+    let mut potential_replacements: Vec<(usize, usize)> = Vec::new();
+    for left in &lhs{
+        for right in &rhs{
+            let potential_pair = (*left, *right);
+            let potential_pair_rev = (*right, *left);
+            if !skipped.contains(&potential_pair) && !skipped.contains(&potential_pair_rev){
+                potential_replacements.push(potential_pair);
+            }
+        }
+    }
+
+    // If all the options are skipped, return an error
+    if potential_replacements.is_empty(){
+        return None;
+    }
+
+    // Choose a random one and add it to the upcoming list
+    let rand = rand::random::<usize>() % potential_replacements.len();
+    Some(potential_replacements[rand])
+}
+
 fn gen_lin_sys_from_questions(names: &Vec<String>) -> (Array2<f64>, Array1<f64>){
     // Generate A matrix
     let mut a: Array2<f64> = arr2(&[[]]);
@@ -114,57 +174,67 @@ fn gen_lin_sys_from_questions(names: &Vec<String>) -> (Array2<f64>, Array1<f64>)
     }
     a[[0, names.len() - 1]] = 1.;
 
-    let min_question_set = gen_min_questions(names.len());
+    let mut upcoming = gen_min_questions(names.len());
+    let mut skipped: Vec<(usize, usize)> = Vec::new();
+    let mut answered: Vec<(usize, usize)> = Vec::new();
 
     // Ask necessary questions
-    let mut left_early = false;
-    for (p1, p2) in &min_question_set{
+    let mut _left_early = false;
+    while !upcoming.is_empty(){
+        let pair = upcoming.pop().unwrap();
+        let (p1, p2) = pair;
+
         // Ask a question, get a response or break
-        let response = ask_question(&names[*p1], &names[*p2]);
+        let response = ask_question(&names[p1], &names[p2]);
         if let UserResponse::Value(val) = response {
             let mut next_row: Vec<f64> = vec![0.; names.len()];
-            next_row[*p1] = 1.;
-            next_row[*p2] = -val;
+            next_row[p1] = 1.;
+            next_row[p2] = -val;
             a.push_row(ArrayView::from(&next_row)).unwrap();
+            answered.push(pair);
         }
         else if let UserResponse::Skip = response {
-            println!("Skip, but actually don't cause this is broken");
             // Perform skip logic. Append replacement questions to the min question set
+            skipped.push(pair);
+            match replace_skipped_pair(&upcoming, &skipped, &answered, &pair){
+                Some(val) => upcoming.push(val),
+                None => assert!(false) // Skipped too many, need to reanswer some of the skipped ones
+            };
         }
         else if let UserResponse::Quit = response {
             println!("Breaking early, this isn't going to work");
-            left_early = true;
+            _left_early = true;
             break;
         }
     }
 
-    if !left_early{
-        println!("Done necessary questions");
-
-        // List and shuffle all remaining questions
-        let mut remaining_questions: Vec<(usize, usize)> = Vec::new();
-        for p1 in 0..names.len(){
-            for p2 in (p1 + 1)..names.len(){
-                if !min_question_set.contains(&(p1, p2)){
-                    remaining_questions.push((p1, p2));
-                }
-            }
-        }
-        remaining_questions.shuffle(&mut thread_rng());
-
-        // Ask remaining questions until the user gets bored
-        for (p1, p2) in &remaining_questions{
-            if let UserResponse::Value(val) = ask_question(&names[*p1], &names[*p2]){
-                let mut next_row: Vec<f64> = vec![0.; names.len()];
-                next_row[*p1] = 1.;
-                next_row[*p2] = -val;
-                a.push_row(ArrayView::from(&next_row)).unwrap();
-            }
-            else{
-                break;
-            }
-        }
-    }
+    // if !left_early{
+    //     println!("Done necessary questions");
+    //
+    //     // List and shuffle all remaining questions
+    //     let mut remaining_questions: Vec<(usize, usize)> = Vec::new();
+    //     for p1 in 0..names.len(){
+    //         for p2 in (p1 + 1)..names.len(){
+    //             if !min_question_set.contains(&(p1, p2)){
+    //                 remaining_questions.push((p1, p2));
+    //             }
+    //         }
+    //     }
+    //     remaining_questions.shuffle(&mut thread_rng());
+    //
+    //     // Ask remaining questions until the user gets bored
+    //     for (p1, p2) in &remaining_questions{
+    //         if let UserResponse::Value(val) = ask_question(&names[*p1], &names[*p2]){
+    //             let mut next_row: Vec<f64> = vec![0.; names.len()];
+    //             next_row[*p1] = 1.;
+    //             next_row[*p2] = -val;
+    //             a.push_row(ArrayView::from(&next_row)).unwrap();
+    //         }
+    //         else{
+    //             break;
+    //         }
+    //     }
+    // }
 
     // Generate b vector
     let mut b: Vec<f64> = vec![0.; a.dim().0];
@@ -230,26 +300,26 @@ fn main() {
             String::from("P4"),
             String::from("P5"),
             String::from("P6"),
-            String::from("P7"),
-            String::from("P8"),
-            String::from("P9"),
-            String::from("P10"),
-            String::from("P11"),
-            String::from("P12"),
-            String::from("P13"),
-            String::from("P14"),
-            String::from("P15"),
-            String::from("P16"),
-            String::from("P17"),
-            String::from("P18"),
-            String::from("P19"),
-            String::from("P20"),
-            String::from("P21"),
-            String::from("P22"),
-            String::from("P23"),
-            String::from("P24"),
-            String::from("P25"),
-            String::from("P26"),
+            // String::from("P7"),
+            // String::from("P8"),
+            // String::from("P9"),
+            // String::from("P10"),
+            // String::from("P11"),
+            // String::from("P12"),
+            // String::from("P13"),
+            // String::from("P14"),
+            // String::from("P15"),
+            // String::from("P16"),
+            // String::from("P17"),
+            // String::from("P18"),
+            // String::from("P19"),
+            // String::from("P20"),
+            // String::from("P21"),
+            // String::from("P22"),
+            // String::from("P23"),
+            // String::from("P24"),
+            // String::from("P25"),
+            // String::from("P26"),
         ];
         let (a, b) = gen_lin_sys_from_questions(&names);
         let sol = least_squares_regression(a, b);
