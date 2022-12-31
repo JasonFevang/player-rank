@@ -323,9 +323,34 @@ fn ask_questions(names: &Vec<String>) -> Vec<(usize, usize, f64)>{
     results
 }
 
+fn gen_lin_sys_from_goalie_results(goalie_results: Vec<(usize, usize, f64)>, num_players: usize) -> (Array2<f64>, Array1<f64>){
+    // Generate A matrix
+    let mut a: Array2<f64> = arr2(&[[]]);
+    // First row
+    for _ in 0..num_players{
+        a.push_column(ArrayView::from(&[0.])).unwrap();
+    }
+    a[[0, num_players - 1]] = 1.;
+
+    // Add self results
+    for entry in goalie_results{
+        let mut next_row: Vec<f64> = vec![0.; num_players];
+        next_row[entry.0] = 1.;
+        next_row[entry.1] = -entry.2;
+        a.push_row(ArrayView::from(&next_row)).unwrap();
+    }
+
+    // Generate b vector
+    let mut b: Vec<f64> = vec![0.; a.dim().0];
+    b[0] = 1.;
+    let b: Array1<f64> = arr1(&b);
+
+    (a, b)
+}
+
 // Convert a list of player-pairs and relative ratings, generate a system 
 // of equations and solve
-fn gen_lin_sys_from_results(offense_results: Vec<(usize, usize, f64)>, defense_results: Vec<(usize, usize, f64)>, self_results: Vec<(usize, f64)>, num_players: usize) -> (Array2<f64>, Array1<f64>){
+fn gen_lin_sys_from_outfield_results(attack_results: Vec<(usize, usize, f64)>, defense_results: Vec<(usize, usize, f64)>, self_results: Vec<(usize, f64)>, num_players: usize) -> (Array2<f64>, Array1<f64>){
     // Generate A matrix
     let mut a: Array2<f64> = arr2(&[[]]);
     // First row
@@ -334,8 +359,8 @@ fn gen_lin_sys_from_results(offense_results: Vec<(usize, usize, f64)>, defense_r
     }
     a[[0, num_players - 1]] = 1.;
 
-    // Add offense results
-    for entry in offense_results{
+    // Add attack results
+    for entry in attack_results{
         let mut next_row: Vec<f64> = vec![0.; num_players*2];
         next_row[entry.0] = 1.;
         next_row[entry.1] = -entry.2;
@@ -403,8 +428,10 @@ fn log_err_stats(err: &Vec<f64>){
     println!("Max: {:.3} Mean: {:.3}", max_err, mean);
 }
 
-fn names_from_file(filename: &str) -> Vec<String>{
+fn names_from_file(filename: &str) -> (Vec<String>, Vec<String>, Vec<Option<usize>>){
     let mut names: Vec<String> = Vec::new();
+    let mut goalies: Vec<String> = Vec::new();
+    let mut goalies_map: Vec<Option<usize>> = Vec::new();
     let mut rdr = csv::Reader::from_path(filename).unwrap();
     for result in rdr.records() {
         // The iterator yields Result<StringRecord, Error>, so we check the
@@ -412,16 +439,24 @@ fn names_from_file(filename: &str) -> Vec<String>{
         let record = result.unwrap();
         if let Some(name) = record.get(0){
             names.push(String::from(name));
+            let mut goalies_map_val: Option<usize> = None;
+            if let Some(goalie_field) = record.get(1){
+                if goalie_field == "yes"{
+                    goalies.push(String::from(name));
+                    goalies_map_val = Some(goalies.len() - 1);
+                }
+            }
+            goalies_map.push(goalies_map_val);
         }
     }
-    names
+    (names, goalies, goalies_map)
 }
 
-fn write_results_to_file(filename: &str, results: &Vec<(&str, f64, f64)>){
+fn write_results_to_file(filename: &str, results: &Vec<(&str, f64, f64, f64)>){
     let mut wtr = csv::Writer::from_path(filename).unwrap();
-    wtr.write_record(&["Name", "Atk", "Def"]).unwrap();
+    wtr.write_record(&["Name", "Atk", "Def", "Goal"]).unwrap();
     for row in results{
-        wtr.write_record(&[row.0, &row.1.to_string(), &row.2.to_string()]).unwrap();
+        wtr.write_record(&[row.0, &format!("{:.2}", row.1), &format!("{:.2}", row.2), &format!("{:.2}", row.3)]).unwrap();
     }
     wtr.flush().unwrap();
 }
@@ -441,33 +476,55 @@ fn main() {
         log_err_stats(&err);
     }
     else{
-        let names = if read_from_csv{
+        let (names, goalies, goalies_map) = if read_from_csv{
             names_from_file(names_filename)
         }
         else{
-            vec![
+            (vec![
                 String::from("P1"),
                 String::from("P2"),
                 String::from("P3"),
                 String::from("P4"),
                 String::from("P5"),
                 String::from("P6"),
-            ]
+            ], vec![
+                String::from("P1"),
+                String::from("P2"),
+                String::from("P3"),
+                String::from("P4"),
+                String::from("P5"),
+                String::from("P6"),
+            ], vec![
+                Some(0), Some(1), Some(2), Some(3), Some(4), Some(5)
+            ])
         };
-        println!("Offensive ability questions");
-        let offense_results = ask_questions(&names);
-        println!("Defensive ability questions");
+        println!("Attack Questions");
+        let attack_results = ask_questions(&names);
+        println!("Defensive Questions");
         let defense_results = ask_questions(&names);
-        println!("Self comparision questions");
+        println!("Self Compare Questions");
         let player_comp_results = ask_self_questions(&names);
+        println!("Goalie Questions");
+        let goalie_results = ask_questions(&goalies);
 
-        let (a, b) = gen_lin_sys_from_results(offense_results, defense_results, player_comp_results, names.len());
+        // Generate matrices to model the scenario and solve them
+        let (a, b) = gen_lin_sys_from_outfield_results(attack_results, defense_results, player_comp_results, names.len());
+        let outfield_sol = least_squares_regression(a, b);
+        let (a, b) = gen_lin_sys_from_goalie_results(goalie_results, goalies.len());
+        let goalie_sol = least_squares_regression(a, b);
 
-        let sol = least_squares_regression(a, b);
-        let mut results: Vec<(&str, f64, f64)> = Vec::new();
+        // Compiles linear equation solution vectors into a results vector
+        let mut results: Vec<(&str, f64, f64, f64)> = Vec::new();
         for i in 0..names.len(){
-            results.push((&names[i], sol[i], sol[names.len() + i]));
+            // If this player can be a goalie, load it's computed goalie score using the goalies_map to map between player index and goalie index
+            // Default to 0 otherwise
+            let goalie_score = match goalies_map[i]{
+                Some(val) => goalie_sol[val],
+                None => 0.0
+            };
+            results.push((&names[i], outfield_sol[i], outfield_sol[names.len() + i], goalie_score));
         }
+        // Sort results by attack rating by default
         results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
         write_results_to_file(output_filename, &results);
     }
