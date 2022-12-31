@@ -180,17 +180,14 @@ fn count_connections(answered: &Vec<(usize, usize)>, pair: (usize, usize)) -> us
     left_cnt + right_cnt
 }
 
-fn gen_lin_sys_from_questions(names: &Vec<String>) -> (Array2<f64>, Array1<f64>){
-    // Generate A matrix
-    let mut a: Array2<f64> = arr2(&[[]]);
-    // First row
-    for _ in 0..names.len(){
-        a.push_column(ArrayView::from(&[0.])).unwrap();
-    }
-    a[[0, names.len() - 1]] = 1.;
-
+// Given a list of names, ask a series of questions comparing two players
+// The user can provide a value, skip a question, or quit whenever
+// Returns a list of pair of players(as indices) and the rating between them
+fn ask_questions(names: &Vec<String>) -> Vec<(usize, usize, f64)>{
+    let mut results: Vec<(usize, usize, f64)> = Vec::new();
     let mut upcoming = gen_min_questions(names.len());
     let mut skipped: Vec<(usize, usize)> = Vec::new();
+    // This is a duplicate of results. I don't care
     let mut answered: Vec<(usize, usize)> = Vec::new();
 
     // Ask necessary questions
@@ -201,10 +198,7 @@ fn gen_lin_sys_from_questions(names: &Vec<String>) -> (Array2<f64>, Array1<f64>)
         // Ask a question, get a response or break
         let response = ask_question(&names[p1], &names[p2]);
         if let UserResponse::Value(val) = response {
-            let mut next_row: Vec<f64> = vec![0.; names.len()];
-            next_row[p1] = 1.;
-            next_row[p2] = -val;
-            a.push_row(ArrayView::from(&next_row)).unwrap();
+            results.push((p1, p2, val));
             answered.push(pair);
         }
         else if let UserResponse::Skip = response {
@@ -284,11 +278,8 @@ fn gen_lin_sys_from_questions(names: &Vec<String>) -> (Array2<f64>, Array1<f64>)
         // Ask the question
         let response = ask_question(&names[p1], &names[p2]);
         if let UserResponse::Value(val) = response{
-            let mut next_row: Vec<f64> = vec![0.; names.len()];
-            next_row[p1] = 1.;
-            next_row[p2] = -val;
-            a.push_row(ArrayView::from(&next_row)).unwrap();
             answered.push(*min_pair);
+            results.push((p1, p2, val));
         }
         else if let UserResponse::Skip = response {
             skipped.push(*min_pair);
@@ -296,6 +287,27 @@ fn gen_lin_sys_from_questions(names: &Vec<String>) -> (Array2<f64>, Array1<f64>)
         else if let UserResponse::Quit = response {
             break;
         }
+    }
+
+    results
+}
+
+// Convert a list of player-pairs and relative ratings, generate a system 
+// of equations and solve
+fn gen_lin_sys_from_results(results: Vec<(usize, usize, f64)>, num_players: usize) -> (Array2<f64>, Array1<f64>){
+    // Generate A matrix
+    let mut a: Array2<f64> = arr2(&[[]]);
+    // First row
+    for _ in 0..num_players{
+        a.push_column(ArrayView::from(&[0.])).unwrap();
+    }
+    a[[0, num_players - 1]] = 1.;
+
+    for entry in results{
+        let mut next_row: Vec<f64> = vec![0.; num_players];
+        next_row[entry.0] = 1.;
+        next_row[entry.1] = -entry.2;
+        a.push_row(ArrayView::from(&next_row)).unwrap();
     }
 
     // Generate b vector
@@ -394,8 +406,9 @@ fn main() {
                 String::from("P6"),
             ]
         };
+        let results = ask_questions(&names);
+        let (a, b) = gen_lin_sys_from_results(results, names.len());
 
-        let (a, b) = gen_lin_sys_from_questions(&names);
         let sol = least_squares_regression(a, b);
         let mut results: Vec<(&str, f64)> = Vec::new();
         for i in 0..sol.len(){
